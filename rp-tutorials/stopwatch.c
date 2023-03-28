@@ -8,34 +8,35 @@
 int main(int argc, char **argv)
 {
     int fd;
-    float wait_time;
-    uint32_t count;
     void *cfg;
     char *name = "/dev/mem";
-    const int freq = 125000000;         // Hz
+    const int num_locations = 100;
 
-    if (argc == 2) wait_time = atof(argv[1]);
-    else wait_time = 1.0;
+    // Prompt the user to input the starting address
+    uint32_t start_address;
+    printf("Enter the starting address (in hexadecimal): ");
+    scanf("%x", &start_address);
 
     if((fd = open(name, O_RDWR)) < 0) {
         perror("open");
         return 1;
     }
-    cfg = mmap(NULL, sysconf(_SC_PAGESIZE), /* map the memory */
-                PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0x42000000);
 
-    *((uint32_t *)(cfg + 0)) = 2;       // clear timer
-    *((uint32_t *)(cfg + 0)) = 1;       // start timer
+    cfg = mmap(NULL, num_locations * sizeof(uint32_t), /* map the memory */
+                PROT_READ, MAP_SHARED, fd, start_address);
 
-    sleep(wait_time);                   // wait for [wait_time] seconds
+    if (cfg == MAP_FAILED) {
+        perror("mmap");
+        return 1;
+    }
 
-    *((uint32_t *)(cfg + 0)) = 0;       // stop timer
+    uint32_t *mem = (uint32_t *) cfg;
 
-    count = *((uint32_t *)(cfg + 8));   // get binary counter output
+    for (int i = 0; i < num_locations; i++) {
+        printf("Memory location 0x%x: %u\n", start_address + i*sizeof(uint32_t), mem[i]);
+    }
 
-    printf("Clock count: %5d, calculated time: %5f s\n",
-            count, (double)count/freq);
-
-    munmap(cfg, sysconf(_SC_PAGESIZE));
+    munmap(cfg, num_locations * sizeof(uint32_t));
+    close(fd);
     return 0;
 }
