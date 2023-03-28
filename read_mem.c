@@ -10,8 +10,12 @@ int main()
     int fd;
     void *cfg;
     char *name = "/dev/mem";
-    const int start_address = 0x42000000;
     const int num_locations = 100;
+
+    // Prompt the user to input the starting address
+    uint32_t start_address;
+    printf("Enter the starting address (in hexadecimal): ");
+    scanf("%x", &start_address);
 
     if((fd = open(name, O_RDWR)) < 0) {
         perror("open");
