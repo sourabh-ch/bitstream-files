@@ -10,7 +10,7 @@ int main()
     int fd;
     void *cfg;
     char *name = "/dev/mem";
-    const int num_locations = 100;
+    const int num_locations = 10;
 
     // Prompt the user to input the starting address
     uint32_t start_address;

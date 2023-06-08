@@ -1,49 +1,118 @@
 #include <stdio.h>
-#include <stdlib.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <unistd.h>
-#include <sys/mman.h>
 #include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/ioctl.h>
+
+#define CMA_ALLOC _IOWR('Z', 0, uint32_t)
 
 int main()
 {
-    int fd;
-    void *cfg;
-    char *name = "/dev/mem";
-    const int num_locations = 10;
+  int fd, i;
+  volatile void *cfg, *sts;
+  volatile uint8_t *rst;
+  volatile int32_t *ram;
+  volatile uint32_t *pos;
+  uint32_t size;
+  int32_t value;
 
-    // Prompt the user to input the starting address
-    uint32_t start_address;
-    printf("Enter the starting address (in hexadecimal): ");
-    scanf("%x", &start_address);
+  if((fd = open("/dev/mem", O_RDWR)) < 0)
+  {
+    perror("open");
+    return EXIT_FAILURE;
+  }
 
-    if((fd = open(name, O_RDWR)) < 0) {
-        perror("open");
-        return 1;
-    }
+  cfg = mmap(NULL, sysconf(_SC_PAGESIZE), PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0x40000000);
+  sts = mmap(NULL, sysconf(_SC_PAGESIZE), PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0x40001000);
 
-    cfg = mmap(NULL, num_locations * sizeof(uint32_t), /* map the memory */
-                PROT_READ | PROT_WRITE, MAP_SHARED, fd, start_address);
+  close(fd);
 
-    if (cfg == MAP_FAILED) {
-        perror("mmap");
-        return 1;
-    }
+  if((fd = open("/dev/cma", O_RDWR)) < 0)
+  {
+    perror("open");
+    return EXIT_FAILURE;
+  }
 
-    uint32_t *mem = (uint32_t *) cfg;
+  size = 2048*sysconf(_SC_PAGESIZE);
 
-    // Ask the user for the data to write
-    printf("Enter data to write to the first 10 memory locations (decimal values):\n");
-    for (int i = 0; i < 10; i++) {
-        printf("Data for memory location 0x%x: ", start_address + i*sizeof(uint32_t));
-        scanf("%u", &mem[i]);
-    }
+  if(ioctl(fd, CMA_ALLOC, &size) < 0)
+  {
+    perror("ioctl");
+    return EXIT_FAILURE;
+  }
 
-    for (int i = 0; i < num_locations; i++) {
-        printf("Memory location 0x%x: %u\n", start_address + i*sizeof(uint32_t), mem[i]);
-    }
+  ram = mmap(NULL, 2048*sysconf(_SC_PAGESIZE), PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
 
-    munmap(cfg, num_locations * sizeof(uint32_t));
-    close(fd);
-    return 0;
+  rst = (uint8_t *)(cfg + 0);
+  pos = (uint32_t *)(sts + 0);
+
+  // set writer address
+  *(uint32_t *)(cfg + 4) = size;
+
+  printf("addr: %08x\n", size);
+
+  for(i = 0; i < 16; ++i)
+  {
+    ram[i] = 0;
+    ram[2097151 - 15 + i] = 0;
+  }
+
+  // reset writer
+  *rst &= ~2;
+  usleep(100);
+
+  // start writer
+  *rst |= 2;
+  usleep(100);
+
+  // reset counter
+  *rst &= ~1;
+  usleep(100);
+
+  // set number of counts
+  *(uint32_t *)(cfg + 8) = 2097151 + 64;
+
+  // start counter
+  *rst |= 1;
+  usleep(100);
+
+  printf("pos: %08x\n", *pos);
+
+  // print counts
+  for(i = 0; i < 16; ++i)
+  {
+    value = ram[i];
+    printf("%08x\n", value);
+  }
+
+  for(i = 0; i < 16; ++i)
+  {
+    value = ram[2097151 - 15 + i];
+    printf("%08x\n", value);
+  }
+
+  while(*pos != 32)
+  {
+    printf("pos: %08x\n", *pos);
+    usleep(100000);
+  }
+
+  printf("pos: %08x\n", *pos);
+
+  for(i = 0; i < 16; ++i)
+  {
+    value = ram[2097151 - 15 + i];
+    printf("%08x\n", value);
+  }
+
+  // print counts
+  for(i = 0; i < 16; ++i)
+  {
+    value = ram[i];
+    printf("%08x\n", value);
+  }
+
+  return EXIT_SUCCESS;
 }
